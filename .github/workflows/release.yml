@@ -1,0 +1,42 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            qemu-system-arm device-tree-compiler python3-pip
+          pip install --break-system-packages spdx-tools
+      - name: Build, test, sign manifest, generate SBOM
+        run: |
+          make all
+          make unit
+          make integration
+          make manifest
+          make sbom
+      - name: Checksums and notice
+        run: |
+          cd build
+          printf '%s\n' 'CI TEST KEY - NOT A PRODUCTION TRUST ANCHOR.' \
+            'Every key used to sign these artefacts was generated on an ephemeral CI runner and discarded.' \
+            'These binaries demonstrate the build; they are not trustworthy firmware.' > RELEASE_NOTICE.txt
+          sha256sum stage1.elf stage2.bin manifest.json manifest.json.sig qvault.spdx.json > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: build/RELEASE_NOTICE.txt
+          files: |
+            build/stage1.elf
+            build/stage2.bin
+            build/manifest.json
+            build/manifest.json.sig
+            build/qvault.spdx.json
+            build/SHA256SUMS
+            build/RELEASE_NOTICE.txt

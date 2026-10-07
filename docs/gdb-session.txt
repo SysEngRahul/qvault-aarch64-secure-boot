@@ -1,0 +1,62 @@
+0x0000000040080000 in _start ()
+
+=== 1. breakpoint at the Stage-1 header parser ===
+Breakpoint 1 at 0x40081af0: file format/image_parser.c, line 48.
+
+Breakpoint 1, qv_image_parse (blob=blob@entry=0x60000000 "QVLT\001", blob_len=blob_len@entry=1048576, expect_type=expect_type@entry=1, hdr=hdr@entry=0x4009bd58, payload=payload@entry=0x4009bc48) at format/image_parser.c:48
+48	    if (!blob || !hdr || !payload) { return QV_ERR_PARAM; }
+
+=== 2. where are we / registers (x0=blob x1=len x2=expect_type, AAPCS64) ===
+#0  qv_image_parse (blob=blob@entry=0x60000000 "QVLT\001", blob_len=blob_len@entry=1048576, expect_type=expect_type@entry=1, hdr=hdr@entry=0x4009bd58, payload=payload@entry=0x4009bc48) at format/image_parser.c:48
+#1  0x0000000040082098 in qv_secure_boot_load (type=type@entry=1, blob=0x60000000 "QVLT\001", blob_len=blob_len@entry=1048576, dest=dest@entry=0x0, rep=rep@entry=0x4009bd18) at security/secure_boot.c:16
+pc             0x40081af0          0x40081af0 <qv_image_parse>
+sp             0x4009bc00          0x4009bc00
+x0             0x60000000          1610612736
+x1             0x100000            1048576
+x2             0x1                 1
+
+=== 3. memory: first 32 bytes of the image blob = start of the header (magic 0x544c5651 'QVLT') ===
+0x60000000:	0x544c5651	0x00f80001	0x00000001	0x0000000c
+0x60000010:	0x41000000	0x00000000	0x41000000	0x00000000
+
+=== 4. run to the end of the parser, inspect the validated header copy ===
+0x0000000040082098 in qv_secure_boot_load (type=type@entry=1, blob=0x60000000 "QVLT\001", blob_len=blob_len@entry=1048576, dest=dest@entry=0x0, rep=rep@entry=0x4009bd18) at security/secure_boot.c:16
+16	    rep->parse = qv_image_parse(blob, blob_len, type, &rep->hdr, &payload);
+Value returned is $1 = QV_OK
+
+=== 5. breakpoint in the verifier, step through the three checks ===
+Breakpoint 2 at 0x40081d90: file security/image_verify.c, line 9.
+
+Breakpoint 2, qv_image_verify (hdr=hdr@entry=0x4009bd58, payload=payload@entry=0x41000000 "\363\003", res=res@entry=0x4009bd1c) at security/image_verify.c:9
+9	    if (!hdr || !payload || !res) { return QV_ERR_PARAM; }
+$2 = 0x1
+$3 = 12
+$4 = 0x41000000
+$5 = 40960
+11	    qv_crypto_sha256(payload, hdr->payload_size, res->digest);
+12	    res->hash = qv_crypto_equal32(res->digest, hdr->payload_hash) ? QV_OK : QV_ERR_HASH;
+14	    res->cert = qv_keystore_verify_cert(hdr->key_id, hdr->key_role, hdr->signer_pubkey,
+19	    res->sig = qv_crypto_ed25519_verify(hdr->signature, hdr->signer_pubkey,
+
+--- after hashing: does the computed digest match the signed header hash? ---
+$6 = QV_OK
+0x4009bd28:	0x87f09e4b	0xdf08f83e	0x381b5011	0x547eddd8
+0x4009bd38:	0xdb5e0082	0x40b1fcdd	0x9a656d9e	0x04857425
+0x4009bd90:	0x87f09e4b	0xdf08f83e	0x381b5011	0x547eddd8
+0x4009bda0:	0xdb5e0082	0x40b1fcdd	0x9a656d9e	0x04857425
+
+=== 6. rollback check: what does the store say, what is the image version? ===
+Breakpoint 3 at 0x40081fe0: file security/rollback.c, line 7.
+
+Breakpoint 3, qv_rollback_check (type=type@entry=1, fw_version=12) at security/rollback.c:7
+7	    qv_status_t st = qv_storage_read_counter(type, &min);
+x0             0x1                 1
+x1             0xc                 12
+(x0 = image type, x1 = fw_version being checked against the stored floor)
+8	    if (st != QV_OK) { return st; }
+9	    return (fw_version < min) ? QV_ERR_ROLLBACK : QV_OK;
+qv_secure_boot_load (type=type@entry=1, blob=<optimized out>, blob_len=blob_len@entry=1048576, dest=0x41000000 "\363\003", dest@entry=0x0, rep=rep@entry=0x4009bd18) at security/secure_boot.c:30
+30	    if (rep->v.hash != QV_OK)  { rep->final = rep->v.hash; }
+
+=== done ===
+[Inferior 1 (process 1) killed]

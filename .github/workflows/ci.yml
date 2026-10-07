@@ -1,0 +1,53 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and analysis tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            qemu-system-arm device-tree-compiler cppcheck clang-tidy python3-pip
+          pip install --break-system-packages spdx-tools
+      - name: Versions
+        run: |
+          aarch64-linux-gnu-gcc --version | head -1
+          qemu-system-aarch64 --version | head -1
+          dtc --version; cppcheck --version; clang-tidy --version | head -2
+      - name: Build (keys are generated fresh on the runner; CI TEST KEYS ONLY)
+        run: make all
+      - name: Unit tests (ASan + UBSan)
+        run: make unit
+      - name: Static analysis (cppcheck + clang-tidy; fails on any finding)
+        run: make lint
+      - name: Quick sanitizer fuzz (DTB, image, PE) - 20000 iterations each
+        run: make negative
+      - name: QEMU integration / fault-injection suite
+        run: make integration
+      - name: Reproducible build (same keys twice; different root key must differ)
+        run: make repro
+      - name: Signed manifest + SBOM
+        run: |
+          make manifest
+          make sbom
+      - name: TCB report and build report
+        run: |
+          make tcb | tee build/tcb-report.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qvault-ci-evidence
+          path: |
+            build/build_report.txt
+            build/tcb-report.md
+            build/manifest.json
+            build/manifest.json.sig
+            build/qvault.spdx.json
+          if-no-files-found: warn

@@ -1,0 +1,9 @@
+build/
+keys/
+tests/unit/test_main
+*.o
+*.corrupt
+__pycache__/
+*.pyc
+.vscode/
+.idea/

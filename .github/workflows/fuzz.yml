@@ -1,0 +1,23 @@
+name: fuzz
+on:
+  schedule:
+    - cron: "0 3 * * 0"        # weekly
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "iterations per target (dtb, image, pe)"
+        default: "1000000"
+permissions:
+  contents: read
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu qemu-system-arm device-tree-compiler
+      - run: make all
+      - name: Mutation fuzzing under ASan+UBSan (not coverage-guided)
+        run: scripts/fuzz_dtb.sh "${{ github.event.inputs.iterations || '1000000' }}" "$GITHUB_RUN_NUMBER"
