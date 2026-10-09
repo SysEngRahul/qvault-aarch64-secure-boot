@@ -49,7 +49,7 @@ TOOLS := $(B)/tools/qvbuild $(B)/tools/qvsign $(B)/tools/qvinspect
 HOST_INC := -Iinclude -Iformat -Ilib -Istorage -Iplatform/qemu_virt -I$(MC) -Itools/common
 HOST_LIB := format/image_parser.c lib/sha256.c lib/status.c tools/common/qvtool.c $(TP_C)
 
-.PHONY: FORCE all firmware tools payloads keys flash dtb run test unit negative integration fuzz clean report lint repro tcb manifest sbom gdb-demo verify
+.PHONY: harness-selftest FORCE all firmware tools payloads keys flash dtb run test unit negative integration fuzz clean report lint repro tcb manifest sbom gdb-demo verify
 all: firmware tools payloads flash report
 
 # ---------------------------------------------------------------- host tools
@@ -116,7 +116,7 @@ payloads: $(B)/payloads/kernel.bin $(B)/payloads/uefi.bin
 # ---------------------------------------------------------------- DTB (dumped from the exact QEMU machine we run)
 $(B)/virt.dtb:
 	@mkdir -p $(B)
-	timeout 20 qemu-system-aarch64 -M virt,dumpdtb=$(B)/virt.raw.dtb -cpu cortex-a72 -smp 1 -m 1G -nographic >/dev/null 2>&1 || true
+	timeout 20 qemu-system-aarch64 -M virt,dumpdtb=$(B)/virt.raw.dtb -cpu cortex-a72 -smp 1 -m 1G -nographic >/dev/null 2>&1 </dev/null || true
 	@test -s $(B)/virt.raw.dtb || { echo "failed to dump DTB"; exit 1; }
 	# QEMU injects fresh random rng-seed/kaslr-seed on every dump => nondeterministic build input, and a
 	# signed, FIXED seed would be a weak-entropy bug. Strip both (a real loader injects entropy at boot,
@@ -142,7 +142,9 @@ negative: all
 	@tests/negative/run_negative.sh
 integration: all
 	@tests/integration/run_qemu_tests.sh
-test: unit negative integration
+harness-selftest:
+	@tests/integration/selftest_harness.sh
+test: unit negative harness-selftest integration
 fuzz: all
 	@scripts/fuzz_dtb.sh
 lint:

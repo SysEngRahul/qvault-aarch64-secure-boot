@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 T=$(mktemp -d); trap 'kill $QPID 2>/dev/null || true; rm -rf "$T"' EXIT
 cp build/flash.img.pflash "$T/p"
-GDB=1 PFLASH="$T/p" scripts/run_qemu.sh build/flash.img > "$T/qemu.log" 2>&1 &
+GDB=1 PFLASH="$T/p" scripts/run_qemu.sh build/flash.img > "$T/qemu.log" 2>&1 < /dev/null &
 QPID=$!
 sleep 2
 cat > "$T/cmds" <<'GDBCMDS'

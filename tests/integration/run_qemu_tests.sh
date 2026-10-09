@@ -9,24 +9,48 @@ pass=0; fail=0
 REF=$T/ref.img      # pristine reference image + pflash; "$REF" may have been mutated by manual runs
 RESULTS=${RESULTS:-}      # optional: file to append "PASS|FAIL<TAB>name" lines to
 
-boot() { # flash log [pflash-to-reuse]   (default: fresh copy of flash.pflash)
-    local f=$1 log=$2 pf=${3:-}
-    if [ -z "$pf" ]; then cp "$f.pflash" "$log.pf"; pf="$log.pf"; fi
-    PFLASH="$pf" timeout ${BOOT_TIMEOUT:-10} scripts/run_qemu.sh "$f" > "$log" 2>&1 || true
+LOGDIR=${QV_TEST_LOGS:-build/integration-logs}   # logs of FAILED scenarios are preserved here
+mkdir -p "$LOGDIR"
+
+# boot FLASH LOGBASE [PFLASH_TO_REUSE]
+#  * stdin is /dev/null: with an interactive terminal on stdin, `timeout` puts QEMU in a background process group and
+#    the kernel STOPS it (state "T") before it prints anything -> empty log, killed at the timeout. (Root cause of the
+#    "32 failed" report; invisible in CI/no-tty runs.)
+#  * the QEMU exit status is kept in LOGBASE.rc (124 = killed by timeout); it is NOT discarded.
+boot() {
+    local f=$1 log=$2 pf=${3:-} rc
+    : > "$log"; echo 127 > "$log.rc"
+    if [ ! -f "$f" ]; then echo "HARNESS ERROR: flash image missing: $f" | tee "$log" >&2; tr -d '\r' < "$log" > "$log.txt"; return; fi
+    if [ -z "$pf" ]; then
+        if [ ! -f "$f.pflash" ]; then echo "HARNESS ERROR: pflash missing: $f.pflash" | tee "$log" >&2; tr -d '\r' < "$log" > "$log.txt"; return; fi
+        cp "$f.pflash" "$log.pf"; pf="$log.pf"
+    fi
+    if [ ! -f "$pf" ]; then echo "HARNESS ERROR: pflash missing: $pf" | tee "$log" >&2; tr -d '\r' < "$log" > "$log.txt"; return; fi
+    PFLASH="$pf" timeout "${BOOT_TIMEOUT:-10}" scripts/run_qemu.sh "$f" > "$log" 2>&1 < /dev/null
+    rc=$?
+    echo "$rc" > "$log.rc"
     tr -d '\r' < "$log" > "$log.txt"
 }
-note() { [ -n "$RESULTS" ] && printf '%s\t%s\n' "$1" "$2" >> "$RESULTS"; true; }
+booted()  { grep -q "QVAULT SECURE BOOT" "$1.txt"; }             # Stage 1 actually started and printed its banner
+rc_desc() { local rc; rc=$(cat "$1.rc" 2>/dev/null || echo '?'); case $rc in 0) echo "exit 0";; 124) echo "killed by timeout";; 127) echo "not launched";; *) echo "exit $rc";; esac; }
+keep()    { local n; n=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-80); cp "$2" "$LOGDIR/$n.log" 2>/dev/null; cp "$2.rc" "$LOGDIR/$n.rc" 2>/dev/null; true; }
+note()    { [ -n "$RESULTS" ] && printf '%s\t%s\n' "$1" "$2" >> "$RESULTS"; true; }
+failed()  { # name logbase reason
+    echo "FAIL  $1  ($3)"; fail=$((fail+1)); note FAIL "$1"; keep "$1" "$2"
+    echo "      [qemu: $(rc_desc "$2"); log kept in $LOGDIR]"; sed 's/^/      | /' "$2.txt" | tail -25
+}
+# A scenario only counts if QEMU really booted: otherwise "pattern missing" / "pattern forbidden" proves nothing.
 expect() { # name logbase pattern...
-    local name=$1 log=$2.txt; shift 2
+    local name=$1 base=$2; shift 2
+    booted "$base" || { failed "$name" "$base" "NO BOOT BANNER - QEMU did not run the firmware"; return; }
     for pat in "$@"; do
-        if ! grep -qE -- "$pat" "$log"; then
-            echo "FAIL  $name  (missing: $pat)"; fail=$((fail+1)); note FAIL "$name"; sed 's/^/      | /' "$log" | tail -25; return
-        fi
+        grep -qE -- "$pat" "$base.txt" || { failed "$name" "$base" "missing: $pat"; return; }
     done
     echo "PASS  $name"; pass=$((pass+1)); note PASS "$name"
 }
-refuse() { # name logbase pattern  (must NOT appear)
-    if grep -qE -- "$3" "$2.txt"; then echo "FAIL  $1  (forbidden: $3)"; fail=$((fail+1)); note FAIL "$1"
+refuse() { # name logbase pattern  (must NOT appear - but only meaningful if the firmware actually ran)
+    booted "$2" || { failed "$1" "$2" "NO BOOT BANNER - cannot prove absence of '$3'"; return; }
+    if grep -qE -- "$3" "$2.txt"; then failed "$1" "$2" "forbidden: $3"
     else echo "PASS  $1"; pass=$((pass+1)); note PASS "$1"; fi
 }
 corrupt() { # region field -> $T/f.img (+ .pflash)
@@ -35,7 +59,16 @@ corrupt() { # region field -> $T/f.img (+ .pflash)
     else scripts/corrupt_image.sh "$REF" "$1" "$2" "$T/f.img" >/dev/null; fi
 }
 mkflash() { OUT="$1" "${@:2}" scripts/make_flash.sh >/dev/null; }
-mkflash "$REF" env     # mkflash OUT ENV=... (env passed through)
+
+# ---------------------------------------------------------------- precondition: the harness itself must work
+mkflash "$REF" env || { echo "HARNESS ERROR: could not build the reference flash image" >&2; exit 2; }
+boot "$REF" "$T/pre"
+if ! booted "$T/pre" || ! grep -q "SECURE BOOT SUCCESS" "$T/pre.txt"; then
+    echo "HARNESS PRECONDITION FAILED: the pristine reference image did not boot to SECURE BOOT SUCCESS ($(rc_desc "$T/pre"))." >&2
+    echo "Every scenario would be meaningless, so none are run. Raw log:" >&2; sed 's/^/  | /' "$T/pre" | tail -25 >&2
+    cp "$T/pre" "$LOGDIR/precondition.log" 2>/dev/null; exit 2
+fi
+echo "precondition: reference image boots through the harness ($(rc_desc "$T/pre"))"
 
 # ---------------------------------------------------------------- 0. baseline
 boot "$REF" "$T/base"

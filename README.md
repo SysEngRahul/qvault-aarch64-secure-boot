@@ -52,6 +52,11 @@ make sbom            # SPDX SBOM + validation
 make gdb-demo        # scripted GDB session
 ```
 
+**Troubleshooting:** if QEMU prints nothing and a scenario hangs until its timeout, check that nothing launches it with an
+interactive terminal on stdin from a background process group (`timeout qemu -nographic …` does). Use `</dev/null`
+(the test scripts already do) or `timeout --foreground`. Failing integration scenarios keep their logs in
+`build/integration-logs/`; `BOOT_TIMEOUT=<s>` changes the per-boot limit (default 10 s).
+
 ## Try an attack
 ```bash
 cp build/flash.img /tmp/clean.img && cp build/flash.img.pflash /tmp/clean.img.pflash

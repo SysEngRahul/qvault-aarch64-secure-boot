@@ -38,7 +38,7 @@ run gdb      "scripted GDB session"                          bash -c 'scripts/gd
 DET[gdb]="$(grep -cE '^Breakpoint [0-9]+,' docs/gdb-session.txt) breakpoint hits, transcript docs/gdb-session.txt"
 run tcb      "TCB report"                                    make -s tcb
 python3 scripts/tcb_report.py > docs/tcb-report.md 2>/dev/null || true
-run boot     "default QEMU boot reaches SECURE BOOT SUCCESS" bash -c 'cp build/flash.img.pflash build/run.pflash; PFLASH=build/run.pflash timeout 20 scripts/run_qemu.sh | tr -d "\r" | tee build/boot.log | grep -q "SECURE BOOT SUCCESS"'
+run boot     "default QEMU boot reaches SECURE BOOT SUCCESS" bash -c 'cp build/flash.img.pflash build/run.pflash; PFLASH=build/run.pflash timeout 20 scripts/run_qemu.sh < /dev/null | tr -d "\r" | tee build/boot.log | grep -q "SECURE BOOT SUCCESS"'
 
 {
 echo "# QVault verification report"

@@ -19,5 +19,13 @@ a rollback/overflow case. The rule for the integration suite is that hostile inp
 crash and never execution of unverified code. Tests start from a pristine reference image because the firmware *writes*
 the pflash (a manual boot changes rollback floors).
 
+**Harness integrity (added after a real failure).** On an interactive terminal the first harness reported
+`15 passed, 32 failed`: `timeout` moves QEMU into a background process group, `-nographic` then touches the terminal, and
+the kernel *stops* QEMU (process state `T`) before it prints a byte. CI and non-tty runs never showed it. Fixes:
+QEMU is always launched with `stdin </dev/null`; its exit status is kept (`124` = timeout) instead of discarded; a scenario
+only counts if the Stage 1 banner appeared (so "must not appear" checks cannot pass on an empty log); the pristine reference
+image must boot before any scenario runs (otherwise exit 2, no misleading cascade); failing scenarios keep their logs in
+`build/integration-logs/`. `make harness-selftest` proves this with fake QEMU binaries (silent exit-0 QEMU => 0 scenarios pass).
+
 **Not done:** code-coverage measurement, coverage-guided fuzzing, MISRA checking, hardware testing, a QEMU scenario that
 installs a PENDING image through the update manager.
