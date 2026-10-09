@@ -1,0 +1,9 @@
+.git/
+build/
+keys/
+*.o
+*.corrupt
+__pycache__/
+*.pyc
+.vscode/
+.idea/
